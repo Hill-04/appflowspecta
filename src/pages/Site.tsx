@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteHero } from "@/components/site/SiteHero";
 import { SiteLogoStrip } from "@/components/site/SiteLogoStrip";
@@ -14,6 +16,16 @@ import { SiteCTA } from "@/components/site/SiteCTA";
 import { SiteFooter } from "@/components/site/SiteFooter";
 
 export default function Site() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Redirect to app if logged in
+  useEffect(() => {
+    if (user) {
+      navigate("/app", { replace: true });
+    }
+  }, [user, navigate]);
+
   // Google Analytics 4 — only on public site
   useEffect(() => {
     if ((window as any).gtag) return;
