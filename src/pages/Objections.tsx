@@ -18,8 +18,8 @@ export default function Objections() {
   const [search, setSearch] = useState("");
 
   const filtered = objections.filter((o) =>
-    o.objection.toLowerCase().includes(search.toLowerCase()) ||
-    o.category.toLowerCase().includes(search.toLowerCase())
+    (o.objection || "").toLowerCase().includes((search || "").toLowerCase()) ||
+    (o.category || "").toLowerCase().includes((search || "").toLowerCase())
   );
 
   const openNew = () => { setEditing(null); setForm({ title: "", response: "", category: "" }); setDialogOpen(true); };
