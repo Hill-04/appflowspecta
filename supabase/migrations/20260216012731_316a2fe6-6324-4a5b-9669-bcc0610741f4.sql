@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN orion_welcomed boolean NOT NULL DEFAULT false;

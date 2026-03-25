@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Token Extractor</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #1a1a1a;
+      color: #0f0;
+      padding: 40px;
+    }
+    .box {
+      background: #000;
+      border: 2px solid #0f0;
+      padding: 20px;
+      max-width: 900px;
+      margin: 20px auto;
+      border-radius: 8px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      background: #0a0a0a;
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      margin: 10px 0;
+    }
+    button {
+      background: #0f0;
+      color: #000;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 5px;
+      border-radius: 4px;
+    }
+    button:hover {
+      background: #0c0;
+    }
+    .success {
+      color: #0f0;
+      font-weight: bold;
+    }
+    .error {
+      color: #f00;
+      font-weight: bold;
+    }
+    pre {
+      background: #0a0a0a;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      border: 1px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>🔐 Token Extractor - FlowSpecta</h1>
+    <p>Extração automática e limpa de credenciais</p>
+    
+    <button onclick="extract()">🔍 EXTRAIR TOKEN</button>
+    <button onclick="copy()">📋 COPIAR TUDO</button>
+    <button onclick="copyJWT()">📋 COPIAR SÓ JWT</button>
+    
+    <div id="status" style="margin: 20px 0;"></div>
+    
+    <div id="output"></div>
+  </div>
+
+  <script>
+    let currentToken = null;
+    let currentUserId = null;
+
+    function extract() {
+      const statusDiv = document.getElementById('status');
+      const outputDiv = document.getElementById('output');
+      
+      try {
+        const tokenStr = localStorage.getItem('sb-tqcdplapyymjbilraigg-auth-token');
+        
+        if (!tokenStr) {
+          statusDiv.innerHTML = '<p class="error">❌ Token não encontrado!</p>';
+          let allKeys = '<h3>Chaves disponíveis:</h3><pre>';
+          for (let i = 0; i < localStorage.length; i++) {
+            allKeys += localStorage.key(i) + '\n';
+          }
+          allKeys += '</pre>';
+          outputDiv.innerHTML = allKeys;
+          return;
+        }
+        
+        const tokenObj = JSON.parse(tokenStr);
+        const jwt = tokenObj.access_token;
+        const userId = tokenObj.user.id;
+        const email = tokenObj.user.email || 'N/A';
+        
+        currentToken = jwt;
+        currentUserId = userId;
+        
+        const parts = jwt.split('.');
+        
+        statusDiv.innerHTML = `
+          <p class="success">✅ Token extraído com sucesso!</p>
+          <p>📊 JWT tem ${parts.length} partes ${parts.length === 3 ? '✅' : '❌ (deveria ser 3!)'}</p>
+        `;
+        
+        outputDiv.innerHTML = \`
+          <h3>📋 USER_JWT:</h3>
+          <textarea id="jwtArea" readonly>\${jwt}</textarea>
+          <small>Tamanho: \${jwt.length} caracteres | Partes: \${parts.length}</small>
+          
+          <h3>🆔 USER_ID:</h3>
+          <textarea id="userIdArea" readonly>\${userId}</textarea>
+          
+          <h3>📧 Email:</h3>
+          <pre>\${email}</pre>
+          
+          <h3>📝 Formato para .env:</h3>
+          <textarea id="envFormat" readonly>USER_JWT=\${jwt}
+USER_ID=\${userId}</textarea>
+          
+          <h3>🔍 Validação JWT:</h3>
+          <pre>Parte 1 (Header): \${parts[0] ? parts[0].substring(0, 50) + '...' : 'FALTANDO'}
+Parte 2 (Payload): \${parts[1] ? parts[1].substring(0, 50) + '...' : 'FALTANDO'}
+Parte 3 (Signature): \${parts[2] ? parts[2].substring(0, 50) + '...' : 'FALTANDO'}</pre>
+        \`;
+        
+      } catch (err) {
+        statusDiv.innerHTML = \`<p class="error">❌ Erro: \${err.message}</p>\`;
+        console.error('Erro completo:', err);
+      }
+    }
+    
+    function copy() {
+      if (!currentToken || !currentUserId) {
+        alert('❌ Extraia o token primeiro!');
+        return;
+      }
+      
+      const text = \`USER_JWT=\${currentToken}\\nUSER_ID=\${currentUserId}\`;
+      
+      navigator.clipboard.writeText(text).then(() => {
+        alert('✅ Credenciais copiadas!');
+      }).catch(err => {
+        alert('❌ Erro ao copiar: ' + err);
+      });
+    }
+    
+    function copyJWT() {
+      if (!currentToken) {
+        alert('❌ Extraia o token primeiro!');
+        return;
+      }
+      
+      navigator.clipboard.writeText(currentToken).then(() => {
+        alert('✅ JWT copiado! Tamanho: ' + currentToken.length);
+      }).catch(err => {
+        alert('❌ Erro ao copiar: ' + err);
+      });
+    }
+    
+    window.addEventListener('load', () => {
+      setTimeout(extract, 500);
+    });
+  </script>
+</body>
+</html>

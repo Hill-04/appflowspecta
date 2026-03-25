@@ -1,0 +1,398 @@
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://esm.sh/zod@3.25.76";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+const BLOCK_INSTRUCTIONS: Record<string, string> = {
+  abertura: "Gere a ABERTURA do script: primeira mensagem ao lead, quebrando o gelo de forma natural e personalizada.",
+  diferencial: "Gere o bloco DIFERENCIAL: mostre o que o usuario faz de unico, destacando valor sem parecer arrogante.",
+  diagnostico: "Gere o bloco DIAGNOSTICO: perguntas abertas para entender a situacao e dor do lead, mostrando interesse genuino.",
+  prova_social: "Gere o bloco PROVA SOCIAL: mencione resultados, cases ou depoimentos de forma natural e crivel.",
+  cta: "Gere o bloco CTA (chamada para acao): proponha o proximo passo de forma clara e sem pressao.",
+};
+
+const OBJECTIVE_INSTRUCTIONS: Record<string, string> = {
+  marcar_reuniao:
+    "OBJETIVO: Marcar reuniao. Tom consultivo. Abertura deve referenciar algo especifico do lead. CTA deve sugerir horario concreto (ex: '15 minutos na quarta?'). Diagnostico foca em identificar fit rapidamente.",
+  fechar_cliente:
+    "OBJETIVO: Fechar cliente. Tom de urgencia sutil. Abertura direta e confiante. CTA com proposta ou condicao especial. Prova social com numeros concretos. Diagnostico valida objecoes antes de propor.",
+  gerar_interesse:
+    "OBJETIVO: Gerar interesse. Tom educativo e leve. Abertura com insight ou conteudo util. CTA leve (compartilhar material, enviar artigo). Diagnostico com perguntas curiosas. Sem pressao de venda.",
+  qualificar_lead:
+    "OBJETIVO: Qualificar lead. Tom investigativo e respeitoso. Abertura com contexto sobre por que esta entrando em contato. CTA para diagnostico rapido ('posso te fazer 2 perguntas?'). Diagnostico com perguntas de qualificacao (budget, timing, decisor).",
+};
+
+const CHANNEL_PLACEHOLDER_INSTRUCTIONS: Record<string, string> = {
+  email: "Canal: Email. Gere uma mensagem unica e completa com assunto e corpo. Use [NomeLead] no assunto e [Empresa] no corpo. Inclua [CTA] no final. Direto e profissional.",
+  whatsapp: "Canal: WhatsApp. Gere mensagens curtas em etapas. Primeira mensagem quebra gelo com [NomeLead]. Etapas seguintes qualificam e contornam objecoes. [CTA] so na ultima etapa. Tom informal e conversacional.",
+  instagram: "Canal: Instagram. Gere mensagens curtas e casuais em etapas. Use [NomeLead] na primeira mensagem. Tom leve e amigavel. [CTA] sutil na ultima etapa.",
+  ligacao: "Canal: Ligacao. Gere um roteiro com falas do vendedor e possiveis respostas do lead. Use [NomeLead] na abertura. [DorPrincipal] nas perguntas de diagnostico. Inclua contorno de objecoes.",
+  reuniao: "Canal: Reuniao online. Gere um roteiro estruturado com agenda, perguntas de diagnostico com [DorPrincipal], apresentacao de [Diferencial] e [CTA] para proximo passo.",
+  presencial: "Canal: Presencial. Gere um pitch conversacional com pontos-chave. Use [NomeLead] na abertura, perguntas de diagnostico com [DorPrincipal] e fechamento com [CTA].",
+};
+
+const CHAT_SYSTEM_PROMPT = `Voce e um especialista em copywriting para prospeccao B2B e vendas consultivas. Voce atua como um consultor de vendas virtual, ajudando o usuario a criar scripts de prospeccao personalizados.
+
+REGRAS DE COMPORTAMENTO:
+1. Antes de gerar qualquer script, faca um mini diagnostico: pergunte sobre canal, objetivo, se tem material existente, tom desejado
+2. Adapte a estrutura ao canal -- email e uma mensagem unica, WhatsApp/Instagram sao etapas curtas, ligacao e roteiro com respostas
+3. Nunca gere o script completo sem entender o contexto. Faca perguntas quando necessario
+4. Gere trechos incrementalmente, pedindo aprovacao do usuario
+5. Sugira provas sociais se o usuario mencionou que tem cases ou portfolio
+6. Use placeholders dinamicos quando apropriado: [NomeLead], [Empresa], [DorPrincipal], [Diferencial], [CTA]
+7. Sempre escreva em portugues brasileiro
+8. Se o usuario pedir ajustes, adapte sem reescrever do zero
+9. Seja conversacional e amigavel, como um colega de vendas experiente
+
+PLACEHOLDERS VALIDOS (use apenas estes):
+- [NomeLead] - Nome do lead
+- [Empresa] - Empresa do lead
+- [DorPrincipal] - Dor principal do publico-alvo
+- [Diferencial] - Diferencial do usuario
+- [CTA] - Chamada para acao
+
+FORMATO DE SCRIPT:
+Quando gerar um trecho de script pronto para uso, envolva-o com os marcadores:
+<<<SCRIPT_DRAFT>>>
+<<<BLOCK_TYPE:TIPO>>>
+(conteudo do script aqui)
+<<<END_DRAFT>>>
+
+Tipos validos para BLOCK_TYPE: ABERTURA, DIFERENCIAL, DIAGNOSTICO, PROVA_SOCIAL, CTA, GERAL.
+Sempre inclua o <<<BLOCK_TYPE:TIPO>>> logo apos o <<<SCRIPT_DRAFT>>>. Se nao souber classificar, use GERAL.
+
+Isso permite que o usuario aprove, edite ou peca refinamentos no trecho. Gere um draft por vez, nao varios de uma vez, a menos que o usuario peca especificamente.
+
+Nao use esses marcadores para explicacoes ou sugestoes -- apenas para trechos prontos para copiar e usar.
+
+NUNCA invente placeholders fora da lista valida. Se precisar de um dado que nao tem placeholder, descreva-o como texto normal.`;
+
+const ANALYZE_SYSTEM_PROMPT = `Voce e um especialista em copywriting para prospeccao B2B e vendas consultivas. O usuario colou um script existente para voce analisar.
+
+INSTRUCOES:
+1. Identifique pontos fortes (o que funciona bem)
+2. Sugira melhorias especificas (tom, estrutura, CTA, personalizacao)
+3. Adapte ao canal informado (email vs mensagem vs ligacao)
+4. Mantenha o estilo do usuario -- nao reescreva do zero
+5. Se o script ja usa placeholders, mantenha-os
+6. Sugira placeholders adicionais quando fizer sentido: [NomeLead], [Empresa], [DorPrincipal], [Diferencial], [CTA]
+7. Responda de forma conversacional, como um consultor de vendas
+8. Sempre escreva em portugues brasileiro
+
+Quando sugerir uma versao melhorada, categorize cada trecho usando os marcadores:
+<<<SCRIPT_DRAFT>>>
+<<<BLOCK_TYPE:TIPO>>>
+(versao melhorada aqui)
+<<<END_DRAFT>>>
+
+Tipos validos: ABERTURA, DIFERENCIAL, DIAGNOSTICO, PROVA_SOCIAL, CTA, GERAL. Se nao souber classificar, use GERAL.
+NUNCA invente placeholders fora da lista valida. Se precisar de um dado que nao tem placeholder, descreva-o como texto normal.`;
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    // ========== AUTH VALIDATION ==========
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Missing authorization" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabaseClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ========== INPUT VALIDATION ==========
+    const messageSchema = z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string().max(5000),
+    });
+
+    const requestSchema = z.object({
+      action: z.enum(["chat", "analyze_script", "generate_block", "refine_block", "generate_variation"]),
+      messages: z.array(messageSchema).max(50).optional(),
+      context: z.object({
+        objective: z.string().max(100).optional(),
+        channel: z.string().max(50).optional(),
+        existingScript: z.string().max(10000).optional(),
+        profileData: z.object({
+          offerType: z.string().max(200).optional(),
+          targetAudienceDescription: z.string().max(500).optional(),
+          mainPain: z.string().max(200).optional(),
+          differential: z.string().max(500).optional(),
+          averageTicket: z.string().max(100).optional(),
+          maturityLevel: z.string().max(100).optional(),
+        }).optional(),
+      }).optional(),
+      block: z.string().max(50).optional(),
+      objective: z.string().max(100).optional(),
+      channel: z.string().max(50).optional(),
+      profileData: z.object({
+        offerType: z.string().max(200).optional(),
+        targetAudienceDescription: z.string().max(500).optional(),
+        mainPain: z.string().max(200).optional(),
+        differential: z.string().max(500).optional(),
+        averageTicket: z.string().max(100).optional(),
+      }).optional(),
+      feedback: z.string().max(2000).optional(),
+      currentContent: z.string().max(5000).optional(),
+    });
+
+    let body: z.infer<typeof requestSchema>;
+    try {
+      body = requestSchema.parse(await req.json());
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "Invalid request format" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { action } = body;
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      return new Response(JSON.stringify({ error: "API key not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ========== CHAT (streaming SSE) ==========
+    if (action === "chat") {
+      const { messages, context } = body;
+      const { objective, channel, profileData } = context || {};
+
+      const profileContext = profileData
+        ? `\nPerfil Estrategico do usuario:\n- Tipo de oferta: ${profileData.offerType || "nao informado"}\n- Publico-alvo: ${profileData.targetAudienceDescription || "nao informado"}\n- Dor principal: ${profileData.mainPain || "nao informado"}\n- Diferencial: ${profileData.differential || "nao informado"}\n- Ticket medio: ${profileData.averageTicket || "nao informado"}\n- Canal: ${channel || "nao informado"}\n- Maturidade: ${profileData.maturityLevel || "nao informado"}`
+        : "";
+
+      const objectiveInstr = objective ? (OBJECTIVE_INSTRUCTIONS[objective] || `OBJETIVO: ${objective}`) : "";
+      const channelInstr = channel ? (CHANNEL_PLACEHOLDER_INSTRUCTIONS[channel] || "") : "";
+
+      const systemPrompt = `${CHAT_SYSTEM_PROMPT}\n\n${profileContext}\n\n${objectiveInstr}\n\n${channelInstr}`.trim();
+
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...(messages || []),
+          ],
+          stream: true,
+          max_tokens: 4096,
+        }),
+      });
+
+      if (!response.ok) {
+        const status = response.status;
+        if (status === 429) {
+          return new Response(JSON.stringify({ error: "Limite de requisiÃ§Ãµes atingido. Tente novamente em alguns segundos." }), {
+            status: 429,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (status === 402) {
+          return new Response(JSON.stringify({ error: "CrÃ©ditos insuficientes. Adicione crÃ©ditos para continuar." }), {
+            status: 402,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const t = await response.text();
+        console.error("AI gateway error:", status, t);
+        return new Response(JSON.stringify({ error: "Erro ao gerar conteÃºdo" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(response.body, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
+    }
+
+    // ========== ANALYZE SCRIPT (non-streaming) ==========
+    if (action === "analyze_script") {
+      const { context } = body;
+      const { existingScript, objective, channel, profileData } = context || {};
+
+      if (!existingScript || existingScript.trim().length < 20) {
+        return new Response(JSON.stringify({ content: "O script estÃ¡ muito curto para anÃ¡lise. Cole um script mais completo para que eu possa avaliar e sugerir melhorias." }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const truncated = existingScript.slice(0, 5000);
+
+      const profileContext = profileData
+        ? `\nPerfil do usuario:\n- Oferta: ${profileData.offerType || "?"}\n- Publico: ${profileData.targetAudienceDescription || "?"}\n- Dor: ${profileData.mainPain || "?"}\n- Diferencial: ${profileData.differential || "?"}\n- Canal: ${channel || "?"}\n- Objetivo: ${objective || "?"}`
+        : "";
+
+      const userPrompt = `Analise este script de prospecÃ§Ã£o e sugira melhorias:\n\n${truncated}`;
+
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            { role: "system", content: `${ANALYZE_SYSTEM_PROMPT}\n${profileContext}` },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: 4096,
+        }),
+      });
+
+      if (!response.ok) {
+        const status = response.status;
+        if (status === 429) {
+          return new Response(JSON.stringify({ error: "Limite de requisiÃ§Ãµes atingido." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (status === 402) {
+          return new Response(JSON.stringify({ error: "CrÃ©ditos insuficientes." }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const t = await response.text();
+        console.error("AI gateway error:", status, t);
+        return new Response(JSON.stringify({ error: "Erro ao analisar script" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      return new Response(JSON.stringify({ content }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ========== LEGACY BLOCK ACTIONS (generate_block, refine_block, generate_variation) ==========
+    const { block, objective, channel, profileData, currentContent, feedback } = body;
+
+    const profileContext = profileData
+      ? `\nPerfil Estrategico do usuario:\n- Tipo de oferta: ${profileData.offerType || "nao informado"}\n- Publico-alvo: ${profileData.targetAudienceDescription || "nao informado"}\n- Dor principal do publico: ${profileData.mainPain || "nao informado"}\n- Diferencial: ${profileData.differential || "nao informado"}\n- Ticket medio: ${profileData.averageTicket || "nao informado"}\n- Canal de contato: ${channel || "nao informado"}`
+      : "";
+
+    const objectiveInstr = OBJECTIVE_INSTRUCTIONS[objective] || "";
+    const blockInstr = BLOCK_INSTRUCTIONS[block] || "";
+
+    let userPrompt = "";
+
+    if (action === "generate_block") {
+      userPrompt = `${blockInstr}\n\n${objectiveInstr}\n\nGere o bloco agora. Use os placeholders [NomeLead], [Empresa], [DorPrincipal], [Diferencial], [CTA] quando apropriado. Maximo 3 paragrafos curtos. Linguagem natural, conversacional, sem parecer robo.`;
+    } else if (action === "refine_block") {
+      userPrompt = `Bloco atual:\n"${currentContent}"\n\nFeedback do usuario: "${feedback}"\n\n${objectiveInstr}\n\nRefine o bloco acima aplicando o feedback. Mantenha os placeholders existentes. Maximo 3 paragrafos.`;
+    } else if (action === "generate_variation") {
+      userPrompt = `Bloco atual:\n"${currentContent}"\n\n${objectiveInstr}\n\nGere uma VARIACAO ALTERNATIVA deste bloco com abordagem diferente mas mesmo objetivo. Use placeholders quando apropriado. Maximo 3 paragrafos.`;
+    } else {
+      return new Response(JSON.stringify({ error: "Invalid action" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const systemPrompt = `Voce e um especialista em copywriting para prospeccao B2B e vendas consultivas. Voce cria mensagens de prospeccao que parecem humanas, diretas e personalizadas. Nunca use jargoes de marketing generico. Sempre escreva em portugues brasileiro.\n\n${profileContext}`;
+
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "return_block",
+              description: "Return the generated script block content",
+              parameters: {
+                type: "object",
+                properties: {
+                  content: { type: "string", description: "The generated block text" },
+                },
+                required: ["content"],
+                additionalProperties: false,
+              },
+            },
+          },
+        ],
+        tool_choice: { type: "function", function: { name: "return_block" } },
+      }),
+    });
+
+    if (!response.ok) {
+      const status = response.status;
+      if (status === 429) {
+        return new Response(JSON.stringify({ error: "Limite de requisiÃ§Ãµes atingido. Tente novamente em alguns segundos." }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (status === 402) {
+        return new Response(JSON.stringify({ error: "CrÃ©ditos insuficientes. Adicione crÃ©ditos para continuar." }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const t = await response.text();
+      console.error("AI gateway error:", status, t);
+      return new Response(JSON.stringify({ error: "Erro ao gerar conteÃºdo" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const data = await response.json();
+    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+
+    if (toolCall?.function?.arguments) {
+      const args = JSON.parse(toolCall.function.arguments);
+      return new Response(JSON.stringify({ content: args.content }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const content = data.choices?.[0]?.message?.content || "";
+    return new Response(JSON.stringify({ content }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    console.error("script-copilot error:", e);
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

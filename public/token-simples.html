@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Token FlowSpecta</title>
+  <style>
+    body {
+      font-family: Arial;
+      background: #f0f0f0;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      max-width: 1000px;
+      margin: 0 auto;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+    }
+    .token-box {
+      background: #f9f9f9;
+      border: 2px solid #ddd;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .label {
+      font-weight: bold;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .success {
+      color: green;
+      font-weight: bold;
+    }
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Extrator de Token FlowSpecta</h1>
+    
+    <div id="result"></div>
+    
+    <button onclick="location.reload()">🔄 Recarregar</button>
+  </div>
+
+  <script>
+    // Executar automaticamente ao carregar
+    (function() {
+      const resultDiv = document.getElementById('result');
+      
+      try {
+        // Buscar token
+        const tokenStr = localStorage.getItem('sb-tqcdplapyymjbilraigg-auth-token');
+        
+        if (!tokenStr) {
+          resultDiv.innerHTML = `
+            <p class="error">❌ Token não encontrado!</p>
+            <p>Certifique-se de estar logado no FlowSpecta.</p>
+          `;
+          return;
+        }
+        
+        // Parse
+        const tokenObj = JSON.parse(tokenStr);
+        const jwt = tokenObj.access_token;
+        const userId = tokenObj.user.id;
+        const email = tokenObj.user.email || 'N/A';
+        
+        // Validar
+        const parts = jwt.split('.');
+        const isValid = parts.length === 3;
+        
+        // Exibir
+        resultDiv.innerHTML = `
+          <p class="success">✅ Token extraído com sucesso!</p>
+          <p>📊 JWT válido: ${isValid ? '✅ SIM (3 partes)' : '❌ NÃO (' + parts.length + ' partes)'}</p>
+          <p>📏 Tamanho: ${jwt.length} caracteres</p>
+          
+          <hr>
+          
+          <div class="label">📋 USER_JWT:</div>
+          <div class="token-box" onclick="selectText(this)" style="cursor: pointer;" title="Clique para selecionar">${jwt}</div>
+          
+          <div class="label">🆔 USER_ID:</div>
+          <div class="token-box" onclick="selectText(this)" style="cursor: pointer;" title="Clique para selecionar">${userId}</div>
+          
+          <div class="label">📧 Email:</div>
+          <div class="token-box">${email}</div>
+          
+          <hr>
+          
+          <div class="label">📝 COPIE ESTAS 2 LINHAS:</div>
+          <div class="token-box" onclick="selectText(this)" style="cursor: pointer; background: #ffffcc;" title="Clique para selecionar">USER_JWT=${jwt}
+USER_ID=${userId}</div>
+          
+          <p style="color: #666; font-size: 14px;">
+            💡 <strong>Como copiar:</strong> Clique nas caixas amarelas acima e pressione Ctrl+C
+          </p>
+        `;
+        
+      } catch (err) {
+        resultDiv.innerHTML = `
+          <p class="error">❌ Erro: ${err.message}</p>
+          <p>Detalhes no console (F12)</p>
+        `;
+        console.error('Erro completo:', err);
+      }
+    })();
+    
+    // Função para selecionar texto ao clicar
+    function selectText(element) {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      // Tentar copiar automaticamente
+      try {
+        if (document.execCommand('copy')) {
+           alert('✅ Copiado para área de transferência!');
+        } else {
+           alert('⚠️ Texto selecionado! Pressione Ctrl+C para copiar.');
+        }
+      } catch (err) {
+        alert('⚠️ Texto selecionado! Pressione Ctrl+C para copiar.');
+      }
+    }
+  </script>
+</body>
+</html>

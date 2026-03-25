@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS orion_tour_step integer NOT NULL DEFAULT 0;

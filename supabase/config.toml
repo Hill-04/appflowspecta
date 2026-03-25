@@ -1,0 +1,40 @@
+project_id = "aodpaxeihslrtzekrqfc"
+
+[functions.script-copilot]
+verify_jwt = false
+
+[functions.check-subscription]
+verify_jwt = false
+
+[functions.mp-create-preference]
+verify_jwt = false
+
+[functions.mp-webhook]
+verify_jwt = false
+
+[functions.admin-manage-user]
+verify_jwt = false
+
+[functions.set-initial-password]
+verify_jwt = false
+
+[functions.mp-process-payment]
+verify_jwt = false
+
+[functions.google-calendar-auth]
+verify_jwt = false
+
+[functions.google-calendar-events]
+verify_jwt = false
+
+[functions.orion-chat]
+verify_jwt = false
+
+[functions.validate-coupon]
+verify_jwt = false
+
+[functions.check-pix-status]
+verify_jwt = false
+
+[functions.orion-campaign-insight]
+verify_jwt = false
